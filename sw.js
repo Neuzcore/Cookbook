@@ -1,5 +1,5 @@
 // Cooking Cat — Service Worker
-const CACHE = 'cooking-cat-v2';
+const CACHE = 'cooking-cat-v4';
 const ASSETS = [
   './kochbuch.html',
   './manifest.json',

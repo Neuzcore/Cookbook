@@ -61,11 +61,15 @@
   header {
     background: var(--surface);
     border-bottom: 1px solid var(--line);
-    padding: 14px 18px;
     position: sticky;
     top: 0;
     z-index: 50;
-    padding-top: calc(14px + env(safe-area-inset-top));
+    padding-top: env(safe-area-inset-top);
+  }
+  .container {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 14px 20px;
   }
   .header-row {
     display: flex;
@@ -111,6 +115,8 @@
   }
   .sync-pill.connected { background: #ecfdf5; border-color: #a7f3d0; color: var(--good); }
   .sync-pill.connected .dot { background: var(--good); }
+  .sync-pill.keyneeded { background: #fef3c7; border-color: #fde68a; color: var(--warn); }
+  .sync-pill.keyneeded .dot { background: var(--warn); }
   .sync-pill.syncing { background: #fef3c7; border-color: #fde68a; color: var(--warn); }
   .sync-pill.syncing .dot { background: var(--warn); animation: pulse 1s infinite; }
   .sync-pill.error { background: #fee2e2; border-color: #fecaca; color: var(--danger); }
@@ -119,7 +125,9 @@
 
   /* ---------- Toolbar ---------- */
   .toolbar {
-    padding: 12px 18px;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 12px 20px;
     display: flex;
     flex-direction: column;
     gap: 10px;
@@ -207,7 +215,11 @@
   }
 
   /* ---------- Grid ---------- */
-  main { padding: 8px 18px 28px; }
+  main {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 8px 20px 28px;
+  }
   .grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -532,6 +544,7 @@
 
   /* ---------- Responsive ---------- */
   @media (max-width: 520px) {
+    .container { padding: 12px 14px; }
     .toolbar { padding: 10px 14px; }
     main { padding: 6px 14px 28px; }
     .grid { gap: 12px; grid-template-columns: 1fr; }
@@ -545,29 +558,31 @@
 <body>
 
 <header>
-  <div class="header-row">
-    <div class="brand">
-      <svg class="brand-cat" viewBox="0 0 64 64" aria-hidden="true">
-        <!-- ohren -->
-        <polygon points="16,22 24,22 20,8"  fill="currentColor"/>
-        <polygon points="40,22 48,22 44,8"  fill="currentColor"/>
-        <!-- kopf (ellipse) -->
-        <ellipse cx="32" cy="36" rx="20" ry="18" fill="currentColor"/>
-        <!-- augen -->
-        <ellipse cx="26" cy="34" rx="1.6" ry="2.2" fill="#1f2a2e"/>
-        <ellipse cx="38" cy="34" rx="1.6" ry="2.2" fill="#1f2a2e"/>
-        <!-- nase (akzent) -->
-        <polygon points="30.5,40 33.5,40 32,42.5" fill="#0e7490"/>
-      </svg>
-      <div>
-        <h1>Cooking Cat</h1>
-        <span class="version" id="version">v0.1</span>
+  <div class="container">
+    <div class="header-row">
+      <div class="brand">
+        <svg class="brand-cat" viewBox="0 0 64 64" aria-hidden="true">
+          <!-- ohren -->
+          <polygon points="16,22 24,22 20,8"  fill="currentColor"/>
+          <polygon points="40,22 48,22 44,8"  fill="currentColor"/>
+          <!-- kopf (ellipse) -->
+          <ellipse cx="32" cy="36" rx="20" ry="18" fill="currentColor"/>
+          <!-- augen -->
+          <ellipse cx="26" cy="34" rx="1.6" ry="2.2" fill="#1f2a2e"/>
+          <ellipse cx="38" cy="34" rx="1.6" ry="2.2" fill="#1f2a2e"/>
+          <!-- nase (akzent) -->
+          <polygon points="30.5,40 33.5,40 32,42.5" fill="#0e7490"/>
+        </svg>
+        <div>
+          <h1>Cooking Cat</h1>
+          <span class="version" id="version">v0.1</span>
+        </div>
       </div>
+      <span class="sync-pill" id="syncPill" onclick="openSyncConfig()">
+        <span class="dot"></span>
+        <span id="syncLabel">Lokal</span>
+      </span>
     </div>
-    <span class="sync-pill" id="syncPill" onclick="openSyncConfig()">
-      <span class="dot"></span>
-      <span id="syncLabel">Lokal</span>
-    </span>
   </div>
 </header>
 
@@ -640,7 +655,7 @@
 /* ==================== Cookbook PWA ==================== */
 /* Speichermodell + Sync analog zur Workout-DB.            */
 
-const VERSION = '0.1';
+const VERSION = '0.3';
 document.getElementById('version').textContent = 'v' + VERSION;
 
 const COOKS = { C: 'Du', D: 'Sie', Z: 'Zusammen' };
@@ -652,10 +667,13 @@ let state = {
 
 let sync = {
   binId: localStorage.getItem('kb_binId') || '',
-  masterKey: localStorage.getItem('kb_masterKey') || '',
+  masterKey: '',  // niemals persistieren — nur für die Session im Speicher
   status: 'local',
   lastSynced: null,
 };
+
+// Migration: einen aus früheren Versionen evtl. gespeicherten Key entfernen
+localStorage.removeItem('kb_masterKey');
 
 /* ---------- Storage ---------- */
 function loadLocal() {
@@ -722,19 +740,88 @@ async function pushRemote() {
 }
 
 function openSyncConfig() {
-  const binId = prompt('JSONBin Bin ID (leer = lokal):', sync.binId);
-  if (binId === null) return;
-  const masterKey = prompt('JSONBin Master Key:', sync.masterKey);
-  if (masterKey === null) return;
-  sync.binId = binId.trim();
-  sync.masterKey = masterKey.trim();
-  localStorage.setItem('kb_binId', sync.binId);
-  localStorage.setItem('kb_masterKey', sync.masterKey);
-  if (sync.binId && sync.masterKey) {
-    pullRemote();
-  } else {
-    setSyncStatus('local', 'Lokal');
+  closeSyncConfig();
+  const html = `
+    <div class="modal-backdrop" id="syncBackdrop" onclick="if(event.target===this)closeSyncConfig()">
+      <div class="modal">
+        <div class="modal-header">
+          <h2>Cloud-Sync</h2>
+          <button class="btn btn-ghost btn-small" onclick="closeSyncConfig()">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin: 0 0 14px; color: var(--ink-soft); font-size: 13px;">
+            Verbinde dieses Gerät mit eurem JSONBin. Der Master Key wird <strong>nicht gespeichert</strong>
+            und muss nach jedem Neustart der App einmal neu eingegeben werden.
+          </p>
+          <div class="field">
+            <label>Bin ID</label>
+            <input type="text" id="cfg_binId" value="${escapeHtml(sync.binId)}"
+                   placeholder="z. B. 6712abc…" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label>Master Key <span style="color:var(--ink-mute); font-weight: 400; text-transform: none; letter-spacing: 0;">(nur Session)</span></label>
+            <input type="password" id="cfg_masterKey" value="${escapeHtml(sync.masterKey)}"
+                   placeholder="$2a$10$…" autocomplete="off" autocapitalize="off" spellcheck="false">
+          </div>
+          <div style="font-size: 12px; color: var(--ink-mute); margin-top: 8px;">
+            Status: <strong style="color: var(--ink-soft);">${syncStatusLabel()}</strong>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" style="color: var(--danger);" onclick="forgetSync()">Verbindung trennen</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-ghost" onclick="closeSyncConfig()">Abbrechen</button>
+            <button class="btn btn-primary" onclick="saveSyncConfig()">Verbinden</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.insertAdjacentHTML('beforeend', html);
+  // Focus passend setzen: wenn binId schon da, gleich aufs Key-Feld
+  setTimeout(() => {
+    const el = document.getElementById(sync.binId ? 'cfg_masterKey' : 'cfg_binId');
+    if (el) el.focus();
+  }, 50);
+}
+
+function closeSyncConfig() {
+  const el = document.getElementById('syncBackdrop');
+  if (el) el.remove();
+}
+
+function syncStatusLabel() {
+  if (sync.binId && sync.masterKey) return 'verbunden';
+  if (sync.binId) return 'Bin ID gespeichert, Key fehlt';
+  return 'lokal (nicht verbunden)';
+}
+
+function saveSyncConfig() {
+  const binId = document.getElementById('cfg_binId').value.trim();
+  const masterKey = document.getElementById('cfg_masterKey').value.trim();
+
+  if (!binId || !masterKey) {
+    alert('Bitte beide Felder ausfüllen — der Key wird nur für diese Session benötigt.');
+    return;
   }
+
+  sync.binId = binId;
+  sync.masterKey = masterKey;
+  localStorage.setItem('kb_binId', binId);
+  // Master Key wird bewusst NICHT in localStorage geschrieben
+
+  closeSyncConfig();
+  pullRemote();
+}
+
+function forgetSync() {
+  if (!confirm('Cloud-Verbindung trennen? Lokale Rezepte bleiben erhalten.')) return;
+  sync.binId = '';
+  sync.masterKey = '';
+  localStorage.removeItem('kb_binId');
+  localStorage.removeItem('kb_masterKey');
+  setSyncStatus('local', 'Lokal');
+  closeSyncConfig();
 }
 
 /* ---------- YouTube Helpers ---------- */
@@ -1278,15 +1365,15 @@ function closeDetail() {
 
 /* ---------- Init ---------- */
 loadLocal();
-if (sync.binId && sync.masterKey) {
-  setSyncStatus('connected', 'Synchron');
-  pullRemote();
+if (sync.binId) {
+  // Bin ID ist gespeichert, aber Key fehlt → Nutzer muss auf Pille tippen
+  setSyncStatus('keyneeded', 'Key benötigt');
 } else {
   setSyncStatus('local', 'Lokal');
 }
 render();
 
-// Pull on visibility regain (handy when switching between phones)
+// Pull beim Wechsel zurück ins Fenster, aber nur wenn Key im Speicher liegt
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && sync.binId && sync.masterKey) pullRemote();
 });
