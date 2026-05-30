@@ -1,19 +1,21 @@
-// Cooking Cat — Service Worker
-const CACHE = 'cooking-cat-v5';
+// Meine Bibliothek — Service Worker
+const CACHE = 'bibliothek-v3';
 const ASSETS = [
-  './kochbuch.html',
+  './bibliothek.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
   'https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&display=swap'
 ];
 
+// Install: cache the app shell
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
   );
 });
 
+// Activate: clean old caches
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
@@ -22,16 +24,21 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Data/API requests bypass cache so sync stays fresh.
+// Fetch strategy:
+// - API requests (Google Books, Open Library) and cover images go straight to
+//   network and are never cached, so book data and covers stay fresh.
+// - The html5-qrcode library from unpkg is fetched live to always get latest.
+// - App shell files: cache-first, fall back to network.
 self.addEventListener('fetch', e => {
   const url = e.request.url;
 
-  if (url.includes('jsonbin.io') ||
-      url.includes('youtube.com') ||
-      url.includes('youtu.be') ||
-      url.includes('ytimg.com') ||
-      url.includes('corsproxy.io')) {
-    return;
+  if (url.includes('googleapis.com/books') ||
+      url.includes('openlibrary.org') ||
+      url.includes('covers.openlibrary.org') ||
+      url.includes('books.google.com') ||
+      url.includes('jsonbin.io') ||
+      url.includes('unpkg.com')) {
+    return; // let the browser handle it normally (no caching)
   }
 
   e.respondWith(
