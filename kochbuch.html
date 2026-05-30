@@ -115,8 +115,6 @@
   }
   .sync-pill.connected { background: #ecfdf5; border-color: #a7f3d0; color: var(--good); }
   .sync-pill.connected .dot { background: var(--good); }
-  .sync-pill.keyneeded { background: #fef3c7; border-color: #fde68a; color: var(--warn); }
-  .sync-pill.keyneeded .dot { background: var(--warn); }
   .sync-pill.syncing { background: #fef3c7; border-color: #fde68a; color: var(--warn); }
   .sync-pill.syncing .dot { background: var(--warn); animation: pulse 1s infinite; }
   .sync-pill.error { background: #fee2e2; border-color: #fecaca; color: var(--danger); }
@@ -655,7 +653,7 @@
 /* ==================== Cookbook PWA ==================== */
 /* Speichermodell + Sync analog zur Workout-DB.            */
 
-const VERSION = '0.3';
+const VERSION = '0.4';
 document.getElementById('version').textContent = 'v' + VERSION;
 
 const COOKS = { C: 'Du', D: 'Sie', Z: 'Zusammen' };
@@ -667,13 +665,10 @@ let state = {
 
 let sync = {
   binId: localStorage.getItem('kb_binId') || '',
-  masterKey: '',  // niemals persistieren — nur für die Session im Speicher
+  masterKey: localStorage.getItem('kb_masterKey') || '',
   status: 'local',
   lastSynced: null,
 };
-
-// Migration: einen aus früheren Versionen evtl. gespeicherten Key entfernen
-localStorage.removeItem('kb_masterKey');
 
 /* ---------- Storage ---------- */
 function loadLocal() {
@@ -750,8 +745,8 @@ function openSyncConfig() {
         </div>
         <div class="modal-body">
           <p style="margin: 0 0 14px; color: var(--ink-soft); font-size: 13px;">
-            Verbinde dieses Gerät mit eurem JSONBin. Der Master Key wird <strong>nicht gespeichert</strong>
-            und muss nach jedem Neustart der App einmal neu eingegeben werden.
+            Verbinde dieses Gerät mit eurem JSONBin. Die Eingabe wird auf diesem Gerät gespeichert,
+            sodass die App beim nächsten Start direkt synchronisiert.
           </p>
           <div class="field">
             <label>Bin ID</label>
@@ -759,7 +754,7 @@ function openSyncConfig() {
                    placeholder="z. B. 6712abc…" autocomplete="off" autocapitalize="off" spellcheck="false">
           </div>
           <div class="field">
-            <label>Master Key <span style="color:var(--ink-mute); font-weight: 400; text-transform: none; letter-spacing: 0;">(nur Session)</span></label>
+            <label>Master Key</label>
             <input type="password" id="cfg_masterKey" value="${escapeHtml(sync.masterKey)}"
                    placeholder="$2a$10$…" autocomplete="off" autocapitalize="off" spellcheck="false">
           </div>
@@ -792,7 +787,6 @@ function closeSyncConfig() {
 
 function syncStatusLabel() {
   if (sync.binId && sync.masterKey) return 'verbunden';
-  if (sync.binId) return 'Bin ID gespeichert, Key fehlt';
   return 'lokal (nicht verbunden)';
 }
 
@@ -801,14 +795,14 @@ function saveSyncConfig() {
   const masterKey = document.getElementById('cfg_masterKey').value.trim();
 
   if (!binId || !masterKey) {
-    alert('Bitte beide Felder ausfüllen — der Key wird nur für diese Session benötigt.');
+    alert('Bitte beide Felder ausfüllen.');
     return;
   }
 
   sync.binId = binId;
   sync.masterKey = masterKey;
   localStorage.setItem('kb_binId', binId);
-  // Master Key wird bewusst NICHT in localStorage geschrieben
+  localStorage.setItem('kb_masterKey', masterKey);
 
   closeSyncConfig();
   pullRemote();
@@ -1365,15 +1359,15 @@ function closeDetail() {
 
 /* ---------- Init ---------- */
 loadLocal();
-if (sync.binId) {
-  // Bin ID ist gespeichert, aber Key fehlt → Nutzer muss auf Pille tippen
-  setSyncStatus('keyneeded', 'Key benötigt');
+if (sync.binId && sync.masterKey) {
+  setSyncStatus('connected', 'Synchron');
+  pullRemote();
 } else {
   setSyncStatus('local', 'Lokal');
 }
 render();
 
-// Pull beim Wechsel zurück ins Fenster, aber nur wenn Key im Speicher liegt
+// Pull beim Wechsel zurück ins Fenster — frische Daten vom anderen Gerät
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && sync.binId && sync.masterKey) pullRemote();
 });
