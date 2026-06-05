@@ -653,7 +653,7 @@
 /* ==================== Cookbook PWA ==================== */
 /* Speichermodell + Sync analog zur Workout-DB.            */
 
-const VERSION = '0.4';
+const VERSION = '0.5';
 document.getElementById('version').textContent = 'v' + VERSION;
 
 const COOKS = { C: 'Du', D: 'Sie', Z: 'Zusammen' };
@@ -663,12 +663,22 @@ let state = {
   filters: { time: 'all', diff: 'all', rating: 'all', tags: new Set() },
 };
 
+// ─── Cloud-Sync via Cloudflare KV Worker ─────────────────────────────────
+// WORKER_URL ist öffentlich und darf im Repo stehen.
+// Das Secret wird einmalig pro Gerät über die App-Maske eingegeben und nur
+// im localStorage dieses Browsers gespeichert — nie in dieser Datei.
+const WORKER_URL = 'https://kv-store.neuzcore.workers.dev';
+const KV_LIBRARY = `${WORKER_URL}/cookingcat/data`;
+
 let sync = {
-  binId: localStorage.getItem('kb_binId') || '',
-  masterKey: localStorage.getItem('kb_masterKey') || '',
+  secret: localStorage.getItem('cc_secret') || '',
   status: 'local',
   lastSynced: null,
 };
+
+// Migration: alte JSONBin-Credentials aufräumen, falls vorhanden
+localStorage.removeItem('kb_binId');
+localStorage.removeItem('kb_masterKey');
 
 /* ---------- Storage ---------- */
 function loadLocal() {
@@ -690,16 +700,22 @@ function setSyncStatus(s, label) {
 }
 
 async function pullRemote() {
-  if (!sync.binId || !sync.masterKey) return;
+  if (!sync.secret) return;
   setSyncStatus('syncing', 'Lädt …');
   try {
-    const r = await fetch(`https://api.jsonbin.io/v3/b/${sync.binId}/latest`, {
-      headers: { 'X-Master-Key': sync.masterKey }
+    const r = await fetch(KV_LIBRARY, {
+      headers: { 'Authorization': 'Bearer ' + sync.secret }
     });
+    if (r.status === 404) {
+      // Key existiert im KV noch nicht — nicht als Fehler werten, einfach lokal bleiben
+      sync.lastSynced = new Date();
+      setSyncStatus('connected', 'Synchron');
+      return;
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
-    if (data.record && Array.isArray(data.record.recipes)) {
-      state.recipes = data.record.recipes;
+    if (data && Array.isArray(data.recipes)) {
+      state.recipes = data.recipes;
       saveLocal();
       render();
     }
@@ -712,14 +728,14 @@ async function pullRemote() {
 }
 
 async function pushRemote() {
-  if (!sync.binId || !sync.masterKey) { saveLocal(); return; }
+  if (!sync.secret) { saveLocal(); return; }
   setSyncStatus('syncing', 'Speichert …');
   try {
-    const r = await fetch(`https://api.jsonbin.io/v3/b/${sync.binId}`, {
+    const r = await fetch(KV_LIBRARY, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        'X-Master-Key': sync.masterKey
+        'Authorization': 'Bearer ' + sync.secret
       },
       body: JSON.stringify({ recipes: state.recipes, version: VERSION })
     });
@@ -745,18 +761,14 @@ function openSyncConfig() {
         </div>
         <div class="modal-body">
           <p style="margin: 0 0 14px; color: var(--ink-soft); font-size: 13px;">
-            Verbinde dieses Gerät mit eurem JSONBin. Die Eingabe wird auf diesem Gerät gespeichert,
-            sodass die App beim nächsten Start direkt synchronisiert.
+            Verbindung zum gemeinsamen Cloudflare-Worker. Das Secret wird auf
+            diesem Gerät gespeichert, sodass die App beim nächsten Start direkt
+            synchronisiert.
           </p>
           <div class="field">
-            <label>Bin ID</label>
-            <input type="text" id="cfg_binId" value="${escapeHtml(sync.binId)}"
-                   placeholder="z. B. 6712abc…" autocomplete="off" autocapitalize="off" spellcheck="false">
-          </div>
-          <div class="field">
-            <label>Master Key</label>
-            <input type="password" id="cfg_masterKey" value="${escapeHtml(sync.masterKey)}"
-                   placeholder="$2a$10$…" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <label>Worker Secret</label>
+            <input type="password" id="cfg_secret" value="${escapeHtml(sync.secret)}"
+                   placeholder="…" autocomplete="off" autocapitalize="off" spellcheck="false">
           </div>
           <div style="font-size: 12px; color: var(--ink-mute); margin-top: 8px;">
             Status: <strong style="color: var(--ink-soft);">${syncStatusLabel()}</strong>
@@ -773,9 +785,8 @@ function openSyncConfig() {
     </div>
   `;
   document.body.insertAdjacentHTML('beforeend', html);
-  // Focus passend setzen: wenn binId schon da, gleich aufs Key-Feld
   setTimeout(() => {
-    const el = document.getElementById(sync.binId ? 'cfg_masterKey' : 'cfg_binId');
+    const el = document.getElementById('cfg_secret');
     if (el) el.focus();
   }, 50);
 }
@@ -786,34 +797,26 @@ function closeSyncConfig() {
 }
 
 function syncStatusLabel() {
-  if (sync.binId && sync.masterKey) return 'verbunden';
+  if (sync.secret) return 'verbunden';
   return 'lokal (nicht verbunden)';
 }
 
 function saveSyncConfig() {
-  const binId = document.getElementById('cfg_binId').value.trim();
-  const masterKey = document.getElementById('cfg_masterKey').value.trim();
-
-  if (!binId || !masterKey) {
-    alert('Bitte beide Felder ausfüllen.');
+  const secret = document.getElementById('cfg_secret').value.trim();
+  if (!secret) {
+    alert('Bitte das Worker Secret eingeben.');
     return;
   }
-
-  sync.binId = binId;
-  sync.masterKey = masterKey;
-  localStorage.setItem('kb_binId', binId);
-  localStorage.setItem('kb_masterKey', masterKey);
-
+  sync.secret = secret;
+  localStorage.setItem('cc_secret', secret);
   closeSyncConfig();
   pullRemote();
 }
 
 function forgetSync() {
   if (!confirm('Cloud-Verbindung trennen? Lokale Rezepte bleiben erhalten.')) return;
-  sync.binId = '';
-  sync.masterKey = '';
-  localStorage.removeItem('kb_binId');
-  localStorage.removeItem('kb_masterKey');
+  sync.secret = '';
+  localStorage.removeItem('cc_secret');
   setSyncStatus('local', 'Lokal');
   closeSyncConfig();
 }
@@ -1359,7 +1362,7 @@ function closeDetail() {
 
 /* ---------- Init ---------- */
 loadLocal();
-if (sync.binId && sync.masterKey) {
+if (sync.secret) {
   setSyncStatus('connected', 'Synchron');
   pullRemote();
 } else {
@@ -1369,7 +1372,7 @@ render();
 
 // Pull beim Wechsel zurück ins Fenster — frische Daten vom anderen Gerät
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && sync.binId && sync.masterKey) pullRemote();
+  if (!document.hidden && sync.secret) pullRemote();
 });
 
 // Service worker
